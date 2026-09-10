@@ -103,8 +103,10 @@ public:
     bool is_variable_length() const override { return true; }
 
     bool is_exclusive() const override {
-        return IColumn::is_exclusive() && keys_column->is_exclusive() &&
-               values_column->is_exclusive() && offsets_column->is_exclusive();
+        // Null-guarded: a moved-from shell (null child) is not exclusive — never deref it.
+        return IColumn::is_exclusive() && keys_column && keys_column->is_exclusive() &&
+               values_column && values_column->is_exclusive() && offsets_column &&
+               offsets_column->is_exclusive();
     }
 
     Field operator[](size_t n) const override;

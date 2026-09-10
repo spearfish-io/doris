@@ -95,13 +95,30 @@ bool is_recursively_exclusive(const IColumn& column) {
             return;
         }
         const ColumnPtr& subcolumn_ptr = const_cast<const IColumn::WrappedPtr&>(subcolumn);
-        DCHECK(subcolumn_ptr);
-        exclusive = is_recursively_exclusive(*subcolumn_ptr);
+        // A hollow (moved-from) child is not exclusive — and must never be dereferenced.
+        // Release builds hit this for real: prod be-0 SIGSEGV, 2026-09-10 02:00:32Z.
+        exclusive = subcolumn_ptr && is_recursively_exclusive(*subcolumn_ptr);
     };
     // `for_each_subcolumn` only exposes a mutable callback type. This callback
     // only reads the wrapped pointers and never calls the non-const accessors.
     const_cast<IColumn&>(column).for_each_subcolumn(callback);
     return exclusive;
+}
+
+// A hollow (moved-from) composite — any null child anywhere in the tree — cannot be
+// cloned or cleared: both paths dereference the null. Callers rebuild such slots from
+// the slot's data type instead.
+bool is_recursively_intact(const IColumn& column) {
+    bool intact = true;
+    IColumn::ColumnCallback callback = [&](IColumn::WrappedPtr& subcolumn) {
+        if (!intact) {
+            return;
+        }
+        const ColumnPtr& subcolumn_ptr = const_cast<const IColumn::WrappedPtr&>(subcolumn);
+        intact = subcolumn_ptr && is_recursively_intact(*subcolumn_ptr);
+    };
+    const_cast<IColumn&>(column).for_each_subcolumn(callback);
+    return intact;
 }
 
 // Acquire one live Block slot transactionally. Shared columns are detached while
@@ -831,8 +848,11 @@ void Block::clear_column_data(int64_t column_size) {
         if (d.column) {
             if (is_recursively_exclusive(*d.column)) {
                 d.column->assert_mutable()->clear();
-            } else {
+            } else if (is_recursively_intact(*d.column)) {
                 d.column = d.column->clone_empty();
+            } else {
+                // Hollow shell: cloning it would deref the null child. Rebuild from type.
+                d.column = d.type->create_column();
             }
         }
     }
@@ -846,8 +866,11 @@ void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) {
         if (column) {
             if (is_recursively_exclusive(*column)) {
                 column->assert_mutable()->clear();
-            } else {
+            } else if (is_recursively_intact(*column)) {
                 column = column->clone_empty();
+            } else {
+                // Hollow shell: cloning it would deref the null child. Rebuild from type.
+                column = data[col].type->create_column();
             }
         }
     }

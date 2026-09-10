@@ -138,7 +138,9 @@ public:
     bool is_variable_length() const override { return true; }
 
     bool is_exclusive() const override {
-        return IColumn::is_exclusive() && data->is_exclusive() && offsets->is_exclusive();
+        // Null-guarded: a moved-from shell (null child) is not exclusive — never deref it.
+        return IColumn::is_exclusive() && data && data->is_exclusive() && offsets &&
+               offsets->is_exclusive();
     }
 
     MutableColumnPtr clone_resized(size_t size) const override;

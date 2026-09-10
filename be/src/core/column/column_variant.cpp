@@ -838,7 +838,7 @@ bool ColumnVariant::is_exclusive() const {
     }
     for (const auto& entry : subcolumns) {
         for (const auto& part : entry->data.data) {
-            if (!part->is_exclusive()) {
+            if (!part || !part->is_exclusive()) {
                 return false;
             }
         }
