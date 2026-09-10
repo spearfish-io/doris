@@ -95,7 +95,7 @@ public:
 
     bool is_exclusive() const override {
         for (const auto& col : columns) {
-            if (!col->is_exclusive()) {
+            if (!col || !col->is_exclusive()) {
                 return false;
             }
         }

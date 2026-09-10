@@ -271,8 +271,9 @@ public:
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
 
     bool is_exclusive() const override {
-        return IColumn::is_exclusive() && _nested_column->is_exclusive() &&
-               get_null_map_column().is_exclusive();
+        // Null-guarded: a moved-from shell (null nested/null-map) is not exclusive.
+        return IColumn::is_exclusive() && _nested_column && _nested_column->is_exclusive() &&
+               _null_map && _null_map->is_exclusive();
     }
 
     bool try_replace_null_payload_with_default_without_cow() const override;
