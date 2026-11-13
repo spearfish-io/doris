@@ -566,10 +566,43 @@ public:
 
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
-    using ColumnCallback = std::function<void(WrappedPtr&)>;
-    using ImutableColumnCallback = std::function<void(const IColumn&)>;
-    virtual void for_each_subcolumn(ColumnCallback) {}
+    using ColumnCallback = std::function<void(const IColumn&)>;
+    // 4.1 name for the read-only callback (Variant V2 shredded state); same type now.
+    using ImutableColumnCallback = ColumnCallback;
+    virtual void for_each_subcolumn(ColumnCallback) const {}
 
+    /// A hollow (moved-from) child must fail the query, never be dereferenced: Release
+    /// builds have no DCHECK, and a null child there is a BE SIGSEGV (prod 2026-09-10,
+    /// 2026-10-31, 2026-11-13).
+    static const IColumn& checked_subcolumn(const IColumn* subcolumn) {
+        if (UNLIKELY(subcolumn == nullptr)) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "hollow column: a subcolumn is null (moved-from)");
+        }
+        return *subcolumn;
+    }
+
+protected:
+    virtual void mutate_subcolumns() {}
+
+    // std::as_const: the non-const chameleon_ptr::get() dereferences the pointer.
+    static void mutate_subcolumn(WrappedPtr& subcolumn) {
+        checked_subcolumn(std::as_const(subcolumn).get());
+        static_cast<IColumn::Ptr&>(subcolumn) =
+                std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+    }
+
+    template <typename ColumnType>
+    static void mutate_subcolumn(typename ColumnType::WrappedPtr& subcolumn) {
+        checked_subcolumn(std::as_const(subcolumn).get());
+        auto mutated = std::move(*static_cast<const typename ColumnType::Ptr&>(subcolumn)).mutate();
+        auto typed_mutated = ColumnType::cast_to_column_mutptr(
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(mutated.get()));
+        mutated = nullptr;
+        static_cast<typename ColumnType::Ptr&>(subcolumn) = std::move(typed_mutated);
+    }
+
+public:
     /// Columns have equal structure.
     /// If true - you can use "compare_at", "insert_from", etc. methods.
     virtual bool structure_equals(const IColumn&) const {
@@ -583,10 +616,7 @@ public:
     // exclusive nodes are reused through the COW fast path.
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
-            static_cast<IColumn::Ptr&>(subcolumn) =
-                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
-        });
+        res->mutate_subcolumns();
         return res;
     }
 
@@ -597,10 +627,7 @@ public:
     static MutablePtr mutate(Ptr ptr) {
         MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
         ptr.reset();                            /// Reset use_count to 1.
-        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
-            static_cast<IColumn::Ptr&>(subcolumn) =
-                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
-        });
+        res->mutate_subcolumns();
         return res;
     }
 

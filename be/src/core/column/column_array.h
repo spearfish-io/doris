@@ -37,7 +37,6 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-#include "util/defer_op.h"
 
 class SipHash;
 
@@ -127,8 +126,8 @@ public:
     }
 
     void sanity_check() const override {
-        data->sanity_check();
-        offsets->sanity_check();
+        checked_subcolumn(data.get()).sanity_check();
+        checked_subcolumn(offsets.get()).sanity_check();
     }
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
@@ -218,14 +217,14 @@ public:
         return get_offsets()[i] - get_offsets()[i - 1];
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override {
-        IColumn::WrappedPtr offsets_column(std::move(static_cast<ColumnOffsets::Ptr&>(offsets)));
-        Defer defer([&] {
-            static_cast<ColumnOffsets::Ptr&>(offsets) =
-                    cast_to_column<ColumnOffsets>(static_cast<const IColumn::Ptr&>(offsets_column));
-        });
-        callback(offsets_column);
-        callback(data);
+    void mutate_subcolumns() override {
+        mutate_subcolumn<ColumnOffsets>(offsets);
+        mutate_subcolumn(data);
+    }
+
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(checked_subcolumn(offsets.get()));
+        callback(checked_subcolumn(data.get()));
     }
 
     ColumnPtr convert_column_if_overflow() override {

@@ -267,7 +267,14 @@ public:
         }
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
+    void mutate_subcolumns() override { mutate_subcolumn(data); }
+
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(checked_subcolumn(data.get()));
+    }
+
+    // A hollow const (null data) fails the query instead of being dereferenced.
+    void sanity_check() const override { checked_subcolumn(data.get()).sanity_check(); }
 
     bool structure_equals(const IColumn& rhs) const override {
         if (const auto* rhs_concrete = check_and_get_column<ColumnConst>(&rhs)) {

@@ -201,7 +201,8 @@ public:
     bool structure_equals(const IColumn& rhs) const override;
 
     void sanity_check() const override;
-    void for_each_subcolumn(ColumnCallback callback) override;
+    void mutate_subcolumns() override;
+    void for_each_subcolumn(ColumnCallback callback) const override;
     void clear() override;
     void finalize() override {}
 
@@ -289,10 +290,6 @@ private:
     void _adopt_state_from(ColumnVariantV2& replacement);
     void _detach_metadata_for_write();
     void _check_invariants() const;
-    static void mutate_subcolumn(IColumn::WrappedPtr& subcolumn) {
-        static_cast<IColumn::Ptr&>(subcolumn) =
-                std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
-    }
 
     // Encoded state: each row owns a value and references one deduplicated metadata blob. The
     // uint32 id costs four bytes per encoded row, but avoids repeating object-key metadata and

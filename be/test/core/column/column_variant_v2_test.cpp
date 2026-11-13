@@ -417,16 +417,17 @@ void expect_not_implemented(Function&& function, std::string_view marker) {
 
 std::vector<ColumnPtr> subcolumns(ColumnVariantV2& column) {
     std::vector<ColumnPtr> result;
-    column.for_each_subcolumn([&](ColumnPtr& subcolumn) { result.push_back(subcolumn); });
+    column.for_each_subcolumn(
+            [&](const IColumn& subcolumn) { result.push_back(subcolumn.get_ptr()); });
     return result;
 }
 
 const IColumn* subcolumn_address(ColumnVariantV2& column, size_t target) {
     const IColumn* result = nullptr;
     size_t index = 0;
-    column.for_each_subcolumn([&](ColumnPtr& subcolumn) {
+    column.for_each_subcolumn([&](const IColumn& subcolumn) {
         if (index == target) {
-            result = subcolumn.get();
+            result = &subcolumn;
         }
         ++index;
     });

@@ -475,7 +475,13 @@ public:
 
     bool is_exclusive() const override;
 
-    void for_each_subcolumn(ColumnCallback callback) override;
+    void mutate_subcolumns() override;
+    void for_each_subcolumn(ColumnCallback callback) const override;
+
+    // for_each_subcolumn throws on a hollow (null) part instead of dereferencing it.
+    void sanity_check() const override {
+        for_each_subcolumn([](const IColumn& subcolumn) { subcolumn.sanity_check(); });
+    }
 
     // Do nothing, call try_insert instead
     void insert(const Field& field) override { try_insert(field); }

@@ -32,12 +32,11 @@ std::string IColumn::dump_structure() const {
     std::stringstream res;
     res << get_name() << "(size = " << size();
 
-    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        res << ", " << subcolumn->dump_structure();
+    ColumnCallback callback = [&](const IColumn& subcolumn) {
+        res << ", " << subcolumn.dump_structure();
     };
 
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
-    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    for_each_subcolumn(callback);
 
     res << ")";
     return res.str();
@@ -82,15 +81,14 @@ bool is_column_const(const IColumn& column) {
 }
 
 void IColumn::check_const_only_in_top_level() const {
-    ColumnCallback throw_if_const = [&](WrappedPtr& column) {
-        const ColumnPtr& col = const_cast<const WrappedPtr&>(column);
-        if (is_column_const(*col)) {
+    ColumnCallback throw_if_const = [&](const IColumn& column) {
+        if (is_column_const(column)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "const column is not allowed to be nested, but got {}",
-                                   col->get_name());
+                                   column.get_name());
         }
     };
-    const_cast<IColumn*>(this)->for_each_subcolumn(throw_if_const);
+    for_each_subcolumn(throw_if_const);
 }
 
 } // namespace doris

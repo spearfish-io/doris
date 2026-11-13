@@ -837,9 +837,9 @@ void ColumnVariantV2::sanity_check() const {
     if (_typed) {
         _typed->sanity_check();
     } else {
-        _metadatas->sanity_check();
-        _meta_ids->sanity_check();
-        _values->sanity_check();
+        checked_subcolumn(_metadatas.get()).sanity_check();
+        checked_subcolumn(_meta_ids.get()).sanity_check();
+        checked_subcolumn(_values.get()).sanity_check();
     }
     _check_invariants();
     if (!_typed) {
@@ -860,18 +860,32 @@ void ColumnVariantV2::sanity_check() const {
     }
 }
 
-void ColumnVariantV2::for_each_subcolumn(ColumnCallback callback) {
+void ColumnVariantV2::for_each_subcolumn(ColumnCallback callback) const {
     if (_shredded) {
-        // The legacy mutable traversal is used for COW detachment. Shredded state is immutable and
-        // reference-counted, so keep a partial leaf projection intact until canonical bytes are needed.
+        _shredded->for_each_subcolumn(callback);
         return;
     }
     if (_typed) {
-        callback(_typed);
+        callback(checked_subcolumn(_typed.get()));
     } else {
-        callback(_metadatas);
-        callback(_meta_ids);
-        callback(_values);
+        callback(checked_subcolumn(_metadatas.get()));
+        callback(checked_subcolumn(_meta_ids.get()));
+        callback(checked_subcolumn(_values.get()));
+    }
+}
+
+void ColumnVariantV2::mutate_subcolumns() {
+    if (_shredded) {
+        // Shredded state is immutable and reference-counted, so keep a partial leaf projection
+        // intact until an operation explicitly requires canonical bytes.
+        return;
+    }
+    if (_typed) {
+        mutate_subcolumn(_typed);
+    } else {
+        mutate_subcolumn(_metadatas);
+        mutate_subcolumn(_meta_ids);
+        mutate_subcolumn(_values);
     }
 }
 

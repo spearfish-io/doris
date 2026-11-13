@@ -43,7 +43,6 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exec/common/sip_hash.h"
-#include "util/defer_op.h"
 
 class SipHash;
 
@@ -74,21 +73,22 @@ public:
 
     std::string get_name() const override;
 
-    void for_each_subcolumn(ColumnCallback callback) override {
-        IColumn::WrappedPtr offsets(std::move(static_cast<COffsets::Ptr&>(offsets_column)));
-        Defer defer([&] {
-            static_cast<COffsets::Ptr&>(offsets_column) =
-                    cast_to_column<COffsets>(static_cast<const IColumn::Ptr&>(offsets));
-        });
-        callback(keys_column);
-        callback(values_column);
-        callback(offsets);
+    void mutate_subcolumns() override {
+        mutate_subcolumn(keys_column);
+        mutate_subcolumn(values_column);
+        mutate_subcolumn<COffsets>(offsets_column);
+    }
+
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(checked_subcolumn(keys_column.get()));
+        callback(checked_subcolumn(values_column.get()));
+        callback(checked_subcolumn(offsets_column.get()));
     }
 
     void sanity_check() const override {
-        keys_column->sanity_check();
-        values_column->sanity_check();
-        offsets_column->sanity_check();
+        checked_subcolumn(keys_column.get()).sanity_check();
+        checked_subcolumn(values_column.get()).sanity_check();
+        checked_subcolumn(offsets_column.get()).sanity_check();
     }
 
     void clear() override {

@@ -32,7 +32,6 @@
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "storage/olap_common.h"
-#include "util/defer_op.h"
 
 class SipHash;
 
@@ -90,6 +89,9 @@ public:
     }
 
     void sanity_check() const override {
+        // A hollow column must fail the query, not SIGSEGV the BE (prod be-2, 2026-11-13).
+        checked_subcolumn(_nested_column.get());
+        checked_subcolumn(_null_map.get());
         if (_nested_column->size() != get_null_map_data().size()) {
             throw doris::Exception(
                     ErrorCode::INTERNAL_ERROR,
@@ -249,14 +251,14 @@ public:
         return get_ptr();
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override {
-        callback(_nested_column);
+    void mutate_subcolumns() override {
+        mutate_subcolumn(_nested_column);
+        mutate_subcolumn<ColumnUInt8>(_null_map);
+    }
 
-        IColumn::WrappedPtr null_map(std::move(static_cast<ColumnUInt8::Ptr&>(_null_map)));
-        Defer defer([&] {
-            _null_map = cast_to_column<ColumnUInt8>(static_cast<const IColumn::Ptr&>(null_map));
-        });
-        callback(null_map);
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(checked_subcolumn(_nested_column.get()));
+        callback(checked_subcolumn(_null_map.get()));
     }
 
     bool structure_equals(const IColumn& rhs) const override {

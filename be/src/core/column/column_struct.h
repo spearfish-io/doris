@@ -81,7 +81,8 @@ public:
 
     void sanity_check() const override {
         for (size_t i = 0; i < columns.size(); ++i) {
-            columns[i]->sanity_check();
+            // columns[0] was null-checked on the first iteration.
+            checked_subcolumn(columns[i].get()).sanity_check();
             if (i != 0 && columns[i]->size() != columns[0]->size()) {
                 throw doris::Exception(
                         ErrorCode::INTERNAL_ERROR,
@@ -155,7 +156,8 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
-    void for_each_subcolumn(ColumnCallback callback) override;
+    void mutate_subcolumns() override;
+    void for_each_subcolumn(ColumnCallback callback) const override;
     bool structure_equals(const IColumn& rhs) const override;
 
     size_t tuple_size() const { return columns.size(); }

@@ -90,34 +90,34 @@ bool is_recursively_exclusive(const IColumn& column) {
     }
 
     bool exclusive = true;
-    IColumn::ColumnCallback callback = [&](IColumn::WrappedPtr& subcolumn) {
+    IColumn::ColumnCallback callback = [&](const IColumn& subcolumn) {
         if (!exclusive) {
             return;
         }
-        const ColumnPtr& subcolumn_ptr = const_cast<const IColumn::WrappedPtr&>(subcolumn);
-        // A hollow (moved-from) child is not exclusive — and must never be dereferenced.
-        // Release builds hit this for real: prod be-0 SIGSEGV, 2026-09-10 02:00:32Z.
-        exclusive = subcolumn_ptr && is_recursively_exclusive(*subcolumn_ptr);
+        exclusive = is_recursively_exclusive(subcolumn);
     };
-    // `for_each_subcolumn` only exposes a mutable callback type. This callback
-    // only reads the wrapped pointers and never calls the non-const accessors.
-    const_cast<IColumn&>(column).for_each_subcolumn(callback);
+    // is_exclusive() is null-guarded, so an exclusive tree has no hollow (null) child here.
+    column.for_each_subcolumn(callback);
     return exclusive;
 }
 
 // A hollow (moved-from) composite — any null child anywhere in the tree — cannot be
 // cloned or cleared: both paths dereference the null. Callers rebuild such slots from
-// the slot's data type instead.
+// the slot's data type instead. for_each_subcolumn is read-only (it must never move a
+// child out: a shared column is read concurrently by other pipeline tasks) and throws
+// on a null child instead of dereferencing it.
 bool is_recursively_intact(const IColumn& column) {
     bool intact = true;
-    IColumn::ColumnCallback callback = [&](IColumn::WrappedPtr& subcolumn) {
-        if (!intact) {
-            return;
+    IColumn::ColumnCallback callback = [&](const IColumn& subcolumn) {
+        if (intact) {
+            intact = is_recursively_intact(subcolumn);
         }
-        const ColumnPtr& subcolumn_ptr = const_cast<const IColumn::WrappedPtr&>(subcolumn);
-        intact = subcolumn_ptr && is_recursively_intact(*subcolumn_ptr);
     };
-    const_cast<IColumn&>(column).for_each_subcolumn(callback);
+    try {
+        column.for_each_subcolumn(callback);
+    } catch (const Exception&) {
+        return false;
+    }
     return intact;
 }
 
