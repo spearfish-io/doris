@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -576,16 +577,40 @@ public:
     using ColumnCallback = std::function<void(const IColumn&)>;
     virtual void for_each_subcolumn(ColumnCallback) const {}
 
+    /// A hollow column is a composite column (Array, Map, Nullable, Struct, Const, Variant)
+    /// with a null subcolumn pointer anywhere in its tree, e.g. a shell whose child was
+    /// moved out while a Block slot still references it. A hollow column must never be
+    /// dereferenced: is_exclusive(), sanity_check(), for_each_subcolumn(), mutate() and the
+    /// Block slot paths that clear or clone it throw doris::Exception instead.
+    virtual bool is_hollow() const { return false; }
+
 protected:
+    /// Dereference a subcolumn of a composite column, throwing instead of crashing when the
+    /// pointer is null. `owner` must be a static name: get_name() of a hollow column would
+    /// dereference the null subcolumn itself.
+    template <typename T>
+    static const T& checked_subcolumn(const T* subcolumn, std::string_view owner) {
+        if (subcolumn == nullptr) [[unlikely]] {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "{} has a null (moved-from) subcolumn, refusing to "
+                                   "dereference it",
+                                   owner);
+        }
+        return *subcolumn;
+    }
+
     virtual void mutate_subcolumns() {}
 
     static void mutate_subcolumn(WrappedPtr& subcolumn) {
+        checked_subcolumn(static_cast<const IColumn::Ptr&>(subcolumn).get(), "mutate_subcolumn");
         static_cast<IColumn::Ptr&>(subcolumn) =
                 std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
     }
 
     template <typename ColumnType>
     static void mutate_subcolumn(typename ColumnType::WrappedPtr& subcolumn) {
+        checked_subcolumn(static_cast<const typename ColumnType::Ptr&>(subcolumn).get(),
+                          "mutate_subcolumn");
         auto mutated = std::move(*static_cast<const typename ColumnType::Ptr&>(subcolumn)).mutate();
         auto typed_mutated = ColumnType::cast_to_column_mutptr(
                 assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(mutated.get()));

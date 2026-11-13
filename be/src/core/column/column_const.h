@@ -120,7 +120,12 @@ public:
 
     bool is_variable_length() const override { return data->is_variable_length(); }
 
-    bool is_exclusive() const override { return IColumn::is_exclusive() && data->is_exclusive(); }
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() &&
+               checked_subcolumn(data.get(), "ColumnConst").is_exclusive();
+    }
+
+    bool is_hollow() const override { return !data || data->is_hollow(); }
 
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
@@ -267,7 +272,7 @@ public:
     void mutate_subcolumns() override { mutate_subcolumn(data); }
 
     void for_each_subcolumn(ColumnCallback callback) const override {
-        callback(*static_cast<const IColumn::Ptr&>(data));
+        callback(checked_subcolumn(static_cast<const IColumn::Ptr&>(data).get(), "ColumnConst"));
     }
 
     bool structure_equals(const IColumn& rhs) const override {

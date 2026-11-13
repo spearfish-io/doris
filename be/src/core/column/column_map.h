@@ -80,15 +80,18 @@ public:
     }
 
     void for_each_subcolumn(ColumnCallback callback) const override {
-        callback(*static_cast<const IColumn::Ptr&>(keys_column));
-        callback(*static_cast<const IColumn::Ptr&>(values_column));
-        callback(*static_cast<const COffsets::Ptr&>(offsets_column));
+        callback(checked_subcolumn(static_cast<const IColumn::Ptr&>(keys_column).get(),
+                                   "ColumnMap"));
+        callback(checked_subcolumn(static_cast<const IColumn::Ptr&>(values_column).get(),
+                                   "ColumnMap"));
+        callback(checked_subcolumn(static_cast<const COffsets::Ptr&>(offsets_column).get(),
+                                   "ColumnMap"));
     }
 
     void sanity_check() const override {
-        keys_column->sanity_check();
-        values_column->sanity_check();
-        offsets_column->sanity_check();
+        checked_subcolumn(keys_column.get(), "ColumnMap").sanity_check();
+        checked_subcolumn(values_column.get(), "ColumnMap").sanity_check();
+        checked_subcolumn(offsets_column.get(), "ColumnMap").sanity_check();
     }
 
     void clear() override {
@@ -103,8 +106,15 @@ public:
     bool is_variable_length() const override { return true; }
 
     bool is_exclusive() const override {
-        return IColumn::is_exclusive() && keys_column->is_exclusive() &&
-               values_column->is_exclusive() && offsets_column->is_exclusive();
+        return IColumn::is_exclusive() &&
+               checked_subcolumn(keys_column.get(), "ColumnMap").is_exclusive() &&
+               checked_subcolumn(values_column.get(), "ColumnMap").is_exclusive() &&
+               checked_subcolumn(offsets_column.get(), "ColumnMap").is_exclusive();
+    }
+
+    bool is_hollow() const override {
+        return !keys_column || !values_column || !offsets_column || keys_column->is_hollow() ||
+               values_column->is_hollow();
     }
 
     Field operator[](size_t n) const override;

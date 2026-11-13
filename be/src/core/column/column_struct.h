@@ -81,7 +81,7 @@ public:
 
     void sanity_check() const override {
         for (size_t i = 0; i < columns.size(); ++i) {
-            columns[i]->sanity_check();
+            checked_subcolumn(columns[i].get(), "ColumnStruct").sanity_check();
             if (i != 0 && columns[i]->size() != columns[0]->size()) {
                 throw doris::Exception(
                         ErrorCode::INTERNAL_ERROR,
@@ -95,11 +95,20 @@ public:
 
     bool is_exclusive() const override {
         for (const auto& col : columns) {
-            if (!col->is_exclusive()) {
+            if (!checked_subcolumn(col.get(), "ColumnStruct").is_exclusive()) {
                 return false;
             }
         }
         return IColumn::is_exclusive();
+    }
+
+    bool is_hollow() const override {
+        for (const auto& col : columns) {
+            if (!col || col->is_hollow()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     Field operator[](size_t n) const override;

@@ -835,12 +835,25 @@ bool ColumnVariant::is_exclusive() const {
     }
     for (const auto& entry : subcolumns) {
         for (const auto& part : entry->data.data) {
-            if (!part->is_exclusive()) {
+            if (!checked_subcolumn(part.get(), "ColumnVariant").is_exclusive()) {
                 return false;
             }
         }
     }
-    return serialized_sparse_column->is_exclusive() && serialized_doc_value_column->is_exclusive();
+    return checked_subcolumn(serialized_sparse_column.get(), "ColumnVariant").is_exclusive() &&
+           checked_subcolumn(serialized_doc_value_column.get(), "ColumnVariant").is_exclusive();
+}
+
+bool ColumnVariant::is_hollow() const {
+    for (const auto& entry : subcolumns) {
+        for (const auto& part : entry->data.data) {
+            if (!part || part->is_hollow()) {
+                return true;
+            }
+        }
+    }
+    return !serialized_sparse_column || !serialized_doc_value_column ||
+           serialized_sparse_column->is_hollow() || serialized_doc_value_column->is_hollow();
 }
 
 void ColumnVariant::mutate_subcolumns() {
@@ -858,11 +871,14 @@ void ColumnVariant::mutate_subcolumns() {
 void ColumnVariant::for_each_subcolumn(ColumnCallback callback) const {
     for (const auto& entry : subcolumns) {
         for (const auto& part : entry->data.data) {
-            callback(*static_cast<const IColumn::Ptr&>(part));
+            callback(checked_subcolumn(static_cast<const IColumn::Ptr&>(part).get(),
+                                       "ColumnVariant"));
         }
     }
-    callback(*static_cast<const IColumn::Ptr&>(serialized_sparse_column));
-    callback(*static_cast<const IColumn::Ptr&>(serialized_doc_value_column));
+    callback(checked_subcolumn(static_cast<const IColumn::Ptr&>(serialized_sparse_column).get(),
+                               "ColumnVariant"));
+    callback(checked_subcolumn(static_cast<const IColumn::Ptr&>(serialized_doc_value_column).get(),
+                               "ColumnVariant"));
 }
 
 void ColumnVariant::insert_from(const IColumn& src, size_t n) {

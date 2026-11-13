@@ -100,6 +100,16 @@ bool is_recursively_exclusive(const IColumn& column) {
     return exclusive;
 }
 
+// Clearing, cloning or stealing a hollow column (see IColumn::is_hollow) would
+// dereference its null subcolumn, so the Block slot paths refuse it up front.
+void check_not_hollow(const IColumn& column, const DataTypePtr& type, std::string_view action) {
+    if (column.is_hollow()) [[unlikely]] {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Cannot {} a hollow (moved-from) column of type {}", action,
+                               type->get_name());
+    }
+}
+
 // Acquire one live Block slot transactionally. Shared columns are detached while
 // the original slot is still intact, so a clone failure cannot leave Block with
 // a moved-from/null column. Exclusive column trees keep the stealing fast path.
@@ -113,6 +123,7 @@ MutableColumnPtr scoped_mutate_column(ColumnPtr& column, const DataTypePtr& type
     if (is_recursively_exclusive(*column)) {
         mutable_column = std::move(*column).mutate();
     } else {
+        check_not_hollow(*column, type, "mutate");
         mutable_column = IColumn::mutate(column);
     }
     column = nullptr;
@@ -841,9 +852,12 @@ void Block::clear_column_data(int64_t column_size) {
     }
     for (auto& d : data) {
         if (d.column) {
+            // is_exclusive() itself throws on a null subcolumn, so only the clone path
+            // needs the explicit check.
             if (is_recursively_exclusive(*d.column)) {
                 d.column->assert_mutable()->clear();
             } else {
+                check_not_hollow(*d.column, d.type, "clear");
                 d.column = d.column->clone_empty();
             }
         }
@@ -859,6 +873,7 @@ void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) {
             if (is_recursively_exclusive(*column)) {
                 column->assert_mutable()->clear();
             } else {
+                check_not_hollow(*column, data[col].type, "clear");
                 column = column->clone_empty();
             }
         }
