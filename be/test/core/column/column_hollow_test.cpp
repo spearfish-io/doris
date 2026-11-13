@@ -85,8 +85,8 @@ void expect_never_dereferenced(const IColumn& column) {
 TEST(ColumnHollowTest, IntactColumnsAreNotHollow) {
     EXPECT_FALSE(create_int64_column()->is_hollow());
     EXPECT_FALSE(create_nullable()->is_hollow());
-    EXPECT_FALSE(ColumnArray::create(create_nullable(), create_single_element_offsets())
-                         ->is_hollow());
+    EXPECT_FALSE(
+            ColumnArray::create(create_nullable(), create_single_element_offsets())->is_hollow());
 }
 
 TEST(ColumnHollowTest, NullableWithNullNested) {
