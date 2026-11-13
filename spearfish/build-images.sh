@@ -35,7 +35,7 @@
 #   -j N              build parallelism (default: nproc)
 # Env:
 #   REGISTRY          default spearfish.azurecr.io
-#   TOOLCHAIN_IMAGE   default apache/doris:build-env-ldb-toolchain-latest
+#   TOOLCHAIN_IMAGE   default ${REGISTRY}/dockerhub/apache/doris:build-env-ldb-toolchain-latest
 #   BE_BASE_IMAGE     default spearfish.azurecr.io/apache/doris:be-4.1.1 (base of every p67552 BE
 #                     image: entrypoint/init scripts proven in prod; only be/{lib,bin,www,dict}
 #                     are replaced)
@@ -46,7 +46,9 @@ set -euo pipefail
 
 REGISTRY="${REGISTRY:-spearfish.azurecr.io}"
 REPO="${REGISTRY}/apache/doris"
-TOOLCHAIN_IMAGE="${TOOLCHAIN_IMAGE:-apache/doris:build-env-ldb-toolchain-latest}"
+# Through our ACR's Docker Hub mirror, not docker.io. It must be recent: 4.1.5 needs Lance/Paimon in the
+# prebuilt third-party tree (the 2026-09-06 image lacks them and build.sh stops before compiling).
+TOOLCHAIN_IMAGE="${TOOLCHAIN_IMAGE:-${REGISTRY}/dockerhub/apache/doris:build-env-ldb-toolchain-latest}"
 BE_BASE_IMAGE="${BE_BASE_IMAGE:-${REGISTRY}/apache/doris:be-4.1.1}"
 FE_BASE_IMAGE="${FE_BASE_IMAGE:-${REGISTRY}/apache/doris:fe-4.1.4}"
 
@@ -113,10 +115,13 @@ if [[ ${SKIP_BUILD} -eq 0 ]]; then
     [[ ${BUILD_BE} -eq 1 ]] && BUILD_ARGS+=(--be)
     [[ ${BUILD_FE} -eq 1 ]] && BUILD_ARGS+=(--fe)
     rm -rf output
+    # Maven takes user.home from /etc/passwd (mounted above), not $HOME, so ~/.m2 is mounted at its real
+    # path. Mounted at /tmp/.m2 the FE build failed: "Could not create local repository at ~/.m2/repository".
+    mkdir -p "${HOME}/.m2"
     docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
         -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
         -v "${ROOT}:${ROOT}" -v "${GIT_COMMON_DIR}:${GIT_COMMON_DIR}:ro" \
-        -v "${HOME}/.m2:/tmp/.m2" \
+        -v "${HOME}/.m2:${HOME}/.m2" \
         -w "${ROOT}" "${TOOLCHAIN_IMAGE}" \
         bash -c "git config --global --add safe.directory '*' && ./build.sh ${BUILD_ARGS[*]} -j ${PARALLEL}"
     echo "${COMMIT}" >output/.spearfish-commit
