@@ -118,12 +118,17 @@ if [[ ${SKIP_BUILD} -eq 0 ]]; then
     # Maven takes user.home from /etc/passwd (mounted above), not $HOME, so ~/.m2 is mounted at its real
     # path. Mounted at /tmp/.m2 the FE build failed: "Could not create local repository at ~/.m2/repository".
     mkdir -p "${HOME}/.m2"
-    docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    # Starts as root only to make the one third-party dir post-build.sh writes (it caches the Lance JNI
+    # archive in ${DORIS_THIRDPARTY}/installed/lance-jni, root-owned in the image), then drops to the
+    # invoking user for the build so nothing in the checkout or ./output is root-owned.
+    docker run --rm -e HOME=/tmp \
         -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
         -v "${ROOT}:${ROOT}" -v "${GIT_COMMON_DIR}:${GIT_COMMON_DIR}:ro" \
         -v "${HOME}/.m2:${HOME}/.m2" \
         -w "${ROOT}" "${TOOLCHAIN_IMAGE}" \
-        bash -c "git config --global --add safe.directory '*' && ./build.sh ${BUILD_ARGS[*]} -j ${PARALLEL}"
+        bash -c "mkdir -p \"\${DORIS_THIRDPARTY:-/var/local/thirdparty}/installed/lance-jni\" &&
+            chown $(id -u):$(id -g) \"\${DORIS_THIRDPARTY:-/var/local/thirdparty}/installed/lance-jni\" &&
+            exec setpriv --reuid=$(id -u) --regid=$(id -g) --clear-groups bash -c \"git config --global --add safe.directory '*' && ./build.sh ${BUILD_ARGS[*]} -j ${PARALLEL}\""
     echo "${COMMIT}" >output/.spearfish-commit
 fi
 [[ "$(cat output/.spearfish-commit 2>/dev/null)" == "${COMMIT}" ]] ||
