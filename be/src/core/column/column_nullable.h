@@ -88,13 +88,15 @@ public:
     }
 
     void sanity_check() const override {
-        if (_nested_column->size() != get_null_map_data().size()) {
+        const auto& nested = checked_subcolumn(_nested_column.get(), "ColumnNullable");
+        const auto& null_map = checked_subcolumn(_null_map.get(), "ColumnNullable");
+        if (nested.size() != null_map.size()) {
             throw doris::Exception(
                     ErrorCode::INTERNAL_ERROR,
                     "Size of nested column {} with size {} is not equal to size of null map {}",
-                    _nested_column->get_name(), _nested_column->size(), get_null_map_data().size());
+                    nested.get_name(), nested.size(), null_map.size());
         }
-        _nested_column->sanity_check();
+        nested.sanity_check();
     }
 
     bool is_variable_length() const override { return _nested_column->is_variable_length(); }
@@ -261,8 +263,10 @@ public:
     }
 
     void for_each_subcolumn(ColumnCallback callback) const override {
-        callback(*static_cast<const IColumn::Ptr&>(_nested_column));
-        callback(*static_cast<const ColumnUInt8::Ptr&>(_null_map));
+        callback(checked_subcolumn(static_cast<const IColumn::Ptr&>(_nested_column).get(),
+                                   "ColumnNullable"));
+        callback(checked_subcolumn(static_cast<const ColumnUInt8::Ptr&>(_null_map).get(),
+                                   "ColumnNullable"));
     }
 
     bool structure_equals(const IColumn& rhs) const override {
@@ -276,8 +280,13 @@ public:
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
 
     bool is_exclusive() const override {
-        return IColumn::is_exclusive() && _nested_column->is_exclusive() &&
-               get_null_map_column().is_exclusive();
+        return IColumn::is_exclusive() &&
+               checked_subcolumn(_nested_column.get(), "ColumnNullable").is_exclusive() &&
+               checked_subcolumn(_null_map.get(), "ColumnNullable").is_exclusive();
+    }
+
+    bool is_hollow() const override {
+        return !_nested_column || !_null_map || _nested_column->is_hollow();
     }
 
     bool try_replace_null_payload_with_default_without_cow() const override;

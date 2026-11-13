@@ -387,7 +387,7 @@ void ColumnStruct::mutate_subcolumns() {
 
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) const {
     for (const auto& column : columns) {
-        callback(*static_cast<const IColumn::Ptr&>(column));
+        callback(checked_subcolumn(static_cast<const IColumn::Ptr&>(column).get(), "ColumnStruct"));
     }
 }
 

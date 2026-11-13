@@ -126,8 +126,8 @@ public:
     }
 
     void sanity_check() const override {
-        data->sanity_check();
-        offsets->sanity_check();
+        checked_subcolumn(data.get(), "ColumnArray").sanity_check();
+        checked_subcolumn(offsets.get(), "ColumnArray").sanity_check();
     }
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
@@ -137,8 +137,12 @@ public:
     bool is_variable_length() const override { return true; }
 
     bool is_exclusive() const override {
-        return IColumn::is_exclusive() && data->is_exclusive() && offsets->is_exclusive();
+        return IColumn::is_exclusive() &&
+               checked_subcolumn(data.get(), "ColumnArray").is_exclusive() &&
+               checked_subcolumn(offsets.get(), "ColumnArray").is_exclusive();
     }
+
+    bool is_hollow() const override { return !data || !offsets || data->is_hollow(); }
 
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
@@ -221,8 +225,9 @@ public:
     }
 
     void for_each_subcolumn(ColumnCallback callback) const override {
-        callback(*static_cast<const ColumnOffsets::Ptr&>(offsets));
-        callback(*static_cast<const IColumn::Ptr&>(data));
+        callback(checked_subcolumn(static_cast<const ColumnOffsets::Ptr&>(offsets).get(),
+                                   "ColumnArray"));
+        callback(checked_subcolumn(static_cast<const IColumn::Ptr&>(data).get(), "ColumnArray"));
     }
 
     ColumnPtr convert_column_if_overflow() override {
