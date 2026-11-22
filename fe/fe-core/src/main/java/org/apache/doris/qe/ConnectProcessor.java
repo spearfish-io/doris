@@ -776,6 +776,19 @@ public abstract class ConnectProcessor {
             // If reach here, maybe Doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        } finally {
+            // Release the statement-scoped resources (planner table locks, statement resources such as the
+            // Iceberg table lease), as executeQuery does for a direct connection. Without this every statement
+            // forwarded from a follower leaked them until StatementContext.finalize() logged "Resources leak".
+            // close() is idempotent. A failure here must not stop the master from answering the follower.
+            StatementContext statementContext = ctx.getStatementContext();
+            if (statementContext != null) {
+                try {
+                    statementContext.close();
+                } catch (Throwable t) {
+                    LOG.warn("Failed to close statement context of forwarded query", t);
+                }
+            }
         }
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current journalID.
