@@ -1145,6 +1145,19 @@ public class StatementContextTest {
                 statementContext.getExternalTablePreloadCandidateCount());
     }
 
+    @Test
+    public void testLeakReportAbbreviatesLongSql() {
+        String shortSql = "INSERT INTO t VALUES (1)";
+        org.junit.jupiter.api.Assertions.assertEquals(shortSql, StatementContext.abbreviateLeakSql(shortSql));
+        org.junit.jupiter.api.Assertions.assertNull(StatementContext.abbreviateLeakSql(null));
+
+        String longSql = String.join("", Collections.nCopies(StatementContext.MAX_LEAK_LOG_SQL_LENGTH * 4, "x"));
+        String abbreviated = StatementContext.abbreviateLeakSql(longSql);
+        org.junit.jupiter.api.Assertions.assertTrue(
+                abbreviated.startsWith(longSql.substring(0, StatementContext.MAX_LEAK_LOG_SQL_LENGTH)));
+        org.junit.jupiter.api.Assertions.assertTrue(abbreviated.endsWith("... (8192 chars, truncated)"));
+    }
+
     private CatalogIf<?> mockCatalog() {
         return Mockito.mock(CatalogIf.class);
     }

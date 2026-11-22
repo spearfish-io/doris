@@ -114,6 +114,8 @@ import javax.annotation.concurrent.GuardedBy;
  * Statement context for nereids
  */
 public class StatementContext implements Closeable {
+    // longest SQL a "Resources leak" report prints per resource
+    static final int MAX_LEAK_LOG_SQL_LENGTH = 2048;
     private static final Logger LOG = LogManager.getLogger(StatementContext.class);
 
     /**
@@ -1316,8 +1318,16 @@ public class StatementContext implements Closeable {
         @Override
         public String toString() {
             return "\nResource {\n  name: " + resourceName + ",\n  thread: " + threadName
-                    + ",\n  sql:\n" + sql + "\n}";
+                    + ",\n  sql:\n" + abbreviateLeakSql(sql) + "\n}";
         }
+    }
+
+    // A leak report names the statement; it does not need all of it. Batch INSERTs run to megabytes.
+    static String abbreviateLeakSql(String sql) {
+        if (sql == null || sql.length() <= MAX_LEAK_LOG_SQL_LENGTH) {
+            return sql;
+        }
+        return sql.substring(0, MAX_LEAK_LOG_SQL_LENGTH) + "... (" + sql.length() + " chars, truncated)";
     }
 
     public void addKeySlot(SlotReference slot) {
