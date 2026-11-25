@@ -77,3 +77,41 @@ The images overlay fresh `output/` onto proven bases. The BE base is `be-4.1.1`,
 every p67552 image. The FE base is `fe-4.1.4`. Override them with `BE_BASE_IMAGE` /
 `FE_BASE_IMAGE`. Before you push, diff the base image's `entry_point.sh` / `init_*.sh` against
 `docker/runtime/` when the base changes.
+
+## arm64 images (prod Doris runs on Cobalt since 2026-11-25)
+
+Prod Doris runs on `bigdataarm` (Standard_E8ps_v6, Azure Cobalt 100) from the **multi-arch** tags
+`be-4.1.5-p67552-2-multiarch` / `fe-4.1.5-p67552-2-multiarch`. In each, the amd64 half is the exact
+`build-images.sh` image and the arm64 half is the same commit compiled natively on ARM. The prod
+benchmark (8 of the heaviest query shapes, this fork on both arches) had E8ps_v6 **4% faster cold
+and 7% faster warm** than E8as_v6, at ~23% less. An E8as_v6 is 4 cores with SMT; an E8ps_v6 is 8
+real cores, and Doris spreads every query over all of them.
+
+**Never use upstream's arm64 images.** `env.sh` sets `DISABLE_BUILD_AZURE=ON` for aarch64, so they
+abort on the first ADLS read (`BE is not compiled with azure support`). A `count(*)` smoke test
+passes anyway because it reads only metadata, so it proves nothing.
+
+```bash
+az acr login --name spearfish                                   # also needs kubectl access to dev AKS
+bash spearfish/build-arm64.sh --suffix p67552-2                 # compile on dev cirunnerarm (~100 min)
+bash spearfish/build-arm64.sh --suffix p67552-2 --push \
+    --amd64-be be-4.1.5-p67552-1 --amd64-fe fe-4.1.5-p67552-2   # arm64 + multi-arch tags
+bash spearfish/build-arm64.sh --cleanup                         # drop the namespace and its 256 GiB PVC
+```
+
+- **Where it runs:** a pod on the dev `cirunnerarm` node (D8pds_v6, already reserved for CI), not a
+  laptop. No upstream arm64 build-env image exists, so `spearfish/arm64/build.sh` installs the same
+  toolchain versions as the x86 build-env (ldb v0.25, JDK 17, Maven 3.9.9, node 22.12, rust 1.94),
+  then builds the third-party tree and BE/FE. On 8 cores: third-party ~25 min, BE+FE ~76 min. The
+  PVC keeps everything, so a re-run after a fix resumes.
+- **The three settings that make it work** are explained in `arm64/build.sh`:
+  - `DISABLE_BUILD_AZURE=OFF`.
+  - `VCPKG_FORCE_SYSTEM_BINARIES=1`, needed by the Azure SDK's vcpkg on ARM.
+  - `ARM_MARCH=armv9-a+bf16+i8mm`. OpenBLAS targets the build CPU on aarch64.
+- **The arm64 BE runs only on v6 (Cobalt) ARM.** On older ARM it dies with SIGILL. Keep Doris pools
+  `*ps_v6`.
+- **Packaging matches `build-images.sh`:** the same overlay, done with kaniko on the same node, onto
+  the arm64 entries of the same upstream base indexes (`be-4.1.1-arm64` / `fe-4.1.4-arm64`, imported
+  by digest). Tags are never overwritten.
+- **BE vs FE suffixes:** prod's amd64 BE is `p67552-1`. `-2` changed only FE code, so the
+  `-2-multiarch` BE pairs the `-1` amd64 BE with an arm64 BE built at `-2`, which has the same BE code.

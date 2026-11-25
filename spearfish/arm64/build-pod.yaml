@@ -1,0 +1,44 @@
+# Spearfish fork: TEMPORARY arm64 build pod (applied by spearfish/build-arm64.sh, which fills __COMMIT__/__BRANCH__).
+# Dev AKS, the `cirunnerarm` pool (Standard_D8pds_v6, Cobalt 100 = the CPU the binary is tuned for), which is
+# already reserved for CI. The build only bursts into ci-builder's idle CPU (small request, 8-CPU limit).
+# The PVC (managed-csi-premium, reclaim Delete) keeps tools/source/third-party so a restarted pod resumes;
+# it goes with the namespace (`spearfish/build-arm64.sh --cleanup`).
+apiVersion: v1
+kind: Namespace
+metadata: {name: doris-arm-build, labels: {purpose: doris-arm-build-temporary}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: work, namespace: doris-arm-build}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: managed-csi-premium
+  resources: {requests: {storage: 256Gi}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: build, namespace: doris-arm-build}
+spec:
+  restartPolicy: Never
+  nodeSelector: {agentpool: cirunnerarm}
+  tolerations: [{key: workload-type, operator: Equal, value: ci-runner, effect: NoSchedule}]
+  containers:
+  - name: build
+    image: spearfish.azurecr.io/dockerhub/library/ubuntu:22.04
+    # On failure the pod stays up so you can exec in, fix, and re-run `bash /script/build.sh`.
+    command: ["bash", "-c", "bash /script/build.sh && echo BUILD-OK || echo BUILD-FAILED; sleep infinity"]
+    env:
+    - {name: COMMIT, value: "__COMMIT__"}
+    - {name: BRANCH, value: "__BRANCH__"}
+    - {name: J, value: "8"}
+    resources:
+      requests: {cpu: 500m, memory: 6Gi}
+      limits: {cpu: "8", memory: 26Gi}
+    volumeMounts:
+    - {name: work, mountPath: /work}
+    - {name: script, mountPath: /script}
+  volumes:
+  - name: work
+    persistentVolumeClaim: {claimName: work}
+  - name: script
+    configMap: {name: build-script}
